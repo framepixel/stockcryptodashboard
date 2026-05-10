@@ -16,7 +16,7 @@ from data_fetcher import (
     fetch_stock_multi_timeframe_data,
     fetch_market_news
 )
-from technical_analysis import calculate_indicators, analyze_strategy, run_backtest
+from technical_analysis import calculate_indicators, analyze_strategy, run_backtest, find_aois
 from ai_agent import generate_ai_trade_idea
 from alpaca_trading import close_symbol_position, get_account_snapshot, get_recent_orders, submit_market_order
 
@@ -86,6 +86,32 @@ def get_market_status():
     us_status = get_market_info('NYSE', 'US Markets')
     uk_status = get_market_info('LSE', 'UK Markets')
     return f"{us_status}\n\n{uk_status}"
+
+
+def get_aoi_timeframe_label(df_w, df_d):
+    """Return whether the latest price sits inside a Daily or Weekly AOI cluster."""
+    aoi_timeframes = []
+
+    def is_in_aoi(df):
+        if df is None or df.empty or 'close' not in df.columns:
+            return False
+
+        aois = find_aois(df)
+        if not aois:
+            return False
+
+        current_price = float(df.iloc[-1]['close'])
+        return any(aoi['bottom'] <= current_price <= aoi['top'] for aoi in aois)
+
+    if is_in_aoi(df_d):
+        aoi_timeframes.append('D')
+    if is_in_aoi(df_w):
+        aoi_timeframes.append('W')
+
+    if not aoi_timeframes:
+        return 'No AOI'
+
+    return f"{' & '.join(aoi_timeframes)}"
 
 # ==========================================
 # DASHBOARD UI
@@ -273,6 +299,7 @@ def main():
                             
                             vol_anomaly, breakout, pullback, score, patterns, risk_tier, risk_flags, bias_label = analyze_strategy(df_w, df_d, df_4h)
                             last = df_d.iloc[-1]
+                            aoi_timeframe = get_aoi_timeframe_label(df_w, df_d)
 
                             trend_pattern = next((p for p in patterns if p.startswith("Trend Aligned")), None)
                             if trend_pattern and "(" in trend_pattern and ")" in trend_pattern:
@@ -299,6 +326,7 @@ def main():
                                 'RSI': last['RSI'], 'MACD_Hist': last['MACD_Hist'] if 'MACD_Hist' in last else 0,
                                 'Trend Aligned': trend_alignment,
                                 'AOI Validation': aoi_validation,
+                                'AOI Timeframe': aoi_timeframe,
                                 'H&S Aligned': hs_aligned,
                                 'Candle Confirm': candle_confirm,
                                 'Vol Anomaly': vol_anomaly, 'Breakout': breakout, 'Pullback': pullback,
@@ -403,7 +431,7 @@ def main():
 
         display_columns = [
             'Asset', 'Price', '24h Change (%)', 'Volume', 'Quality Score',
-            'Trend Aligned', 'AOI Validation', 'H&S Aligned', 'Candle Confirm',
+            'Trend Aligned', 'AOI Validation', 'AOI Timeframe', 'H&S Aligned', 'Candle Confirm',
             'RSI', 'MACD_Hist', 'Vol Anomaly', 'Breakout', 'Pullback', 'Uptrend',
             'Risk Tier', 'Risk Flags', '4h Context'
         ]
